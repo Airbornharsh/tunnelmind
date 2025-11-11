@@ -298,6 +298,7 @@ class WebSocketManager {
       prompt: string
       options?: Record<string, unknown>
       userId?: string
+      openai?: Record<string, unknown>
     },
     timeoutMs = 60_000,
   ): Promise<{ response: string; chunks: string[]; giverId: string }> {
@@ -329,6 +330,7 @@ class WebSocketManager {
       prompt: payload.prompt,
       options: payload.options,
       userId: payload.userId,
+      openai: payload.openai,
     }
 
     return new Promise((resolve, reject) => {

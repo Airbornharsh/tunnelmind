@@ -4,7 +4,13 @@ import { AuthMiddleware } from '../middlewares/auth.middleware'
 
 export const takerRouter = Router()
 
-takerRouter.use(AuthMiddleware.authMiddleware)
-
-takerRouter.get('/models', TakerController.getAvailableModels)
-takerRouter.post('/inference', TakerController.requestInference)
+takerRouter.get(
+  '/models',
+  AuthMiddleware.authMiddleware,
+  TakerController.getAvailableModels,
+)
+takerRouter.post(
+  '/inference',
+  AuthMiddleware.apiKeyMiddleware,
+  TakerController.requestInference,
+)

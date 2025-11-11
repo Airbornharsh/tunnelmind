@@ -9,3 +9,5 @@ build/
 .idea/
 
 tsconfig.tsbuildinfo
+
+test-model

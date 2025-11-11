@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios'
+import OpenAI from 'openai'
 
 export interface OllamaModel {
   name: string
@@ -21,11 +22,20 @@ export interface OllamaGenerateRequest {
 
 export class OllamaService {
   private client: AxiosInstance
+  private openai: OpenAI
 
   constructor(baseURL: string = 'http://localhost:11434') {
     this.client = axios.create({
       baseURL,
       timeout: 300000,
+    })
+
+    const normalizedBase = baseURL.endsWith('/')
+      ? baseURL.slice(0, -1)
+      : baseURL
+    this.openai = new OpenAI({
+      baseURL: `${normalizedBase}/v1`,
+      apiKey: 'ollama',
     })
   }
 
@@ -70,6 +80,24 @@ export class OllamaService {
       return true
     } catch {
       return false
+    }
+  }
+
+  async *chatCompletionStream(
+    params: Record<string, any>,
+  ): AsyncGenerator<string> {
+    const response = await this.openai.chat.completions.create({
+      ...params,
+      messages: params.messages,
+      model: params.model,
+      stream: true,
+    })
+
+    for await (const chunk of response) {
+      const content = chunk?.choices?.[0]?.delta?.content || ''
+      if (content) {
+        yield content
+      }
     }
   }
 }

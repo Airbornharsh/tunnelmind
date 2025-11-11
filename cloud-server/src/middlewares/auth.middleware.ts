@@ -73,4 +73,56 @@ export class AuthMiddleware {
       return
     }
   }
+
+  static async apiKeyMiddleware(
+    req: Request,
+    res: Response<ApiResponse>,
+    next: NextFunction,
+  ) {
+    try {
+      let apiKey: string | null = null
+
+      const authHeader = req.headers.authorization
+      if (authHeader && typeof authHeader === 'string') {
+        const [scheme, token] = authHeader.split(' ')
+        if (scheme?.toLowerCase() === 'bearer' && token) {
+          apiKey = token
+        }
+      }
+
+      const apiKeyHeader = req.headers['x-api-key'] || null
+      if (apiKeyHeader && typeof apiKeyHeader === 'string') {
+        apiKey = apiKeyHeader
+      }
+
+      if (!apiKey) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication failed',
+        })
+        return
+      }
+
+      const apiKeyVerification = await ApiKeyService.verifyApiKey(apiKey)
+      if (apiKeyVerification && apiKeyVerification.userId) {
+        const attached = await attachUser(req, apiKeyVerification.userId)
+        if (attached) {
+          next()
+          return
+        }
+      }
+
+      res.status(401).json({
+        success: false,
+        error: 'Authentication failed',
+      })
+      return
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: 'Authentication failed',
+      })
+      return
+    }
+  }
 }

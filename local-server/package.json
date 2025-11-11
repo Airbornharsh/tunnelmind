@@ -1,7 +1,21 @@
 {
   "name": "tunnelmind",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Local server for TunnelMind givers",
+  "license": "ISC",
+  "author": "Harsh Keshri",
+  "type": "commonjs",
+  "keywords": [
+    "tunnelmind",
+    "ollama",
+    "cli",
+    "giver",
+    "websocket",
+    "ai-tunneling",
+    "model-sharing",
+    "llm",
+    "openai-compatible"
+  ],
   "main": "dist/index.js",
   "bin": {
     "tunnelmind": "./dist/index.js"
@@ -10,7 +24,7 @@
     "dev": "tsx watch src/index.ts",
     "dev:server": "tsx watch src/index.ts server",
     "dev:cli": "tsx watch src/index.ts cli",
-    "build": "tsc",
+    "build": "tsc -b",
     "start": "node dist/index.js",
     "start:server": "node dist/index.js server",
     "start:cli": "node dist/index.js cli",
@@ -25,6 +39,7 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "open": "^10.2.0",
+    "openai": "^4.104.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
