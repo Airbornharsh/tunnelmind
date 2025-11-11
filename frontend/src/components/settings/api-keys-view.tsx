@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import { toast } from '@/lib/hooks/useToast'
 import { useRouter } from 'next/navigation'
+import { api } from '@/lib/api'
 
 export function ApiKeysView() {
   const router = useRouter()
@@ -67,14 +68,17 @@ export function ApiKeysView() {
     }
   }
 
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text)
-    setCopied(id)
-    setTimeout(() => setCopied(null), 2000)
-    toast({
-      title: 'Copied!',
-      description: 'API key copied to clipboard',
-    })
+  const handleCopy = async (id: string) => {
+    const result = await api.getApiKey(id)
+    if (result.success && result.data?.apiKey && result.data.apiKey.key) {
+      navigator.clipboard.writeText(result.data.apiKey.key)
+      setCopied(id)
+      setTimeout(() => setCopied(null), 2000)
+      toast({
+        title: 'Copied!',
+        description: 'API key copied to clipboard',
+      })
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -154,7 +158,7 @@ export function ApiKeysView() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleCopy(key.prefix, key.id)}
+                    onClick={() => handleCopy(key.id)}
                   >
                     {copied === key.id ? (
                       <CheckCircle2 className="h-4 w-4" />
@@ -215,7 +219,8 @@ export function ApiKeysView() {
                   ⚠️ Save this API key now
                 </p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  You won't be able to see it again after closing this dialog.
+                  You won&apos;t be able to see it again after closing this
+                  dialog.
                 </p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 px-3 py-2 bg-background border rounded-md text-sm font-mono break-all">
@@ -224,7 +229,15 @@ export function ApiKeysView() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleCopy(newApiKey, 'new')}
+                    onClick={() => {
+                      navigator.clipboard.writeText(newApiKey)
+                      setCopied('new')
+                      setTimeout(() => setCopied(null), 2000)
+                      toast({
+                        title: 'Copied!',
+                        description: 'API key copied to clipboard',
+                      })
+                    }}
                   >
                     {copied === 'new' ? (
                       <CheckCircle2 className="h-4 w-4" />

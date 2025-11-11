@@ -1,9 +1,27 @@
 import { Response, NextFunction, Request } from 'express'
-import jwt from 'jsonwebtoken'
-import { JWT_SECRET } from '../config/config'
-import { AuthenticatedRequest, JWTPayload, ApiResponse } from '../types'
-import { db } from '../db/mongo/init'
+import { AuthenticatedRequest, ApiResponse } from '../types'
 import { AuthService } from '../services/auth.service'
+import { ApiKeyService } from '../services/apiKey.service'
+import { db } from '../db/mongo/init'
+
+async function attachUser(req: Request, userId: string): Promise<boolean> {
+  const user = await db.UserModel.findById(userId)
+  if (!user || !user._id) {
+    return false
+  }
+
+  ;(req as AuthenticatedRequest).user = {
+    _id: user._id.toString(),
+    id: user._id.toString(),
+    userId: user._id.toString(),
+    email: user.email,
+    name: user.name,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  }
+
+  return true
+}
 
 export class AuthMiddleware {
   static async authMiddleware(
@@ -12,35 +30,34 @@ export class AuthMiddleware {
     next: NextFunction,
   ) {
     try {
-      const splitted = req.headers.authorization?.split(' ')
-      if (!splitted) {
-        res.status(401).json({
-          success: false,
-          error: 'No authorization token provided',
-        })
-        return
-      }
-
-      const token = splitted[1]
-      if (!token) {
-        res.status(401).json({
-          success: false,
-          error: 'No authorization token provided',
-        })
-        return
-      }
-
-      const decodedToken = AuthService.verifyToken(token)
-
-      if (decodedToken?.email && decodedToken.userId) {
-        ;(req as AuthenticatedRequest).user = {
-          email: decodedToken.email,
-          userId: decodedToken.userId,
-          type: decodedToken.type,
-          sessionId: decodedToken.sessionId,
+      // Prefer Bearer token authentication when available.
+      const authHeader = req.headers.authorization
+      if (authHeader && typeof authHeader === 'string') {
+        const [scheme, token] = authHeader.split(' ')
+        if (scheme?.toLowerCase() === 'bearer' && token) {
+          const decodedToken = AuthService.verifyToken(token)
+          if (decodedToken?.userId) {
+            const attached = await attachUser(req, decodedToken.userId)
+            if (attached) {
+              next()
+              return
+            }
+          }
         }
-        next()
-        return
+      }
+
+      const apiKeyHeader = req.headers['x-api-key'] || null
+
+      if (apiKeyHeader && typeof apiKeyHeader === 'string') {
+        const apiKeyVerification =
+          await ApiKeyService.verifyApiKey(apiKeyHeader)
+        if (apiKeyVerification) {
+          const attached = await attachUser(req, apiKeyVerification.userId)
+          if (attached) {
+            next()
+            return
+          }
+        }
       }
 
       res.status(401).json({

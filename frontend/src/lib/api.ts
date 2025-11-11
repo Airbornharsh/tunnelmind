@@ -53,18 +53,6 @@ export interface Giver {
   lastSeen: string
 }
 
-export interface Tunnel {
-  tunnelId: string
-  wsUrl: string
-  model: string
-  status: 'waiting' | 'active' | 'closed'
-  giver?: {
-    id: string
-    name: string
-    models: string[]
-  }
-}
-
 export interface AvailableModel {
   model: string
   givers: {
@@ -72,6 +60,12 @@ export interface AvailableModel {
     name: string
     status: 'online' | 'offline'
   }[]
+}
+
+export interface InferenceResult {
+  response: string
+  chunks: string[]
+  giverId?: string
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,21 +122,29 @@ export const api = {
     return response.data.data || []
   },
 
-  async createTunnel(model: string, apiKey?: string): Promise<Tunnel> {
-    const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
-    const response = await axiosInstance.post(
-      '/api/taker/tunnel',
-      { model },
-      { headers },
-    )
-    return response.data.data
-  },
+  async requestInference(
+    model: string,
+    prompt: string,
+    options?: Record<string, unknown>,
+    apiKey?: string,
+  ): Promise<InferenceResult> {
+    const headers: Record<string, string> = {}
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey
+    }
 
-  async getTunnel(tunnelId: string, apiKey?: string): Promise<Tunnel> {
-    const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
-    const response = await axiosInstance.get(`/api/taker/tunnel/${tunnelId}`, {
-      headers,
-    })
+    const response = await axiosInstance.post(
+      '/api/taker/inference',
+      {
+        model,
+        prompt,
+        options,
+      },
+      {
+        headers,
+      },
+    )
+
     return response.data.data
   },
 
@@ -153,24 +155,20 @@ export const api = {
     return response.data
   },
 
-  async getApiKeys(): Promise<ApiResponse<ApiKeyInfo[]>> {
+  async getApiKeys(): Promise<ApiResponse<{ apiKeys: ApiKeyInfo[] }>> {
     const response = await axiosInstance.get('/api/api-keys')
+    return response.data
+  },
+
+  async getApiKey(
+    id: string,
+  ): Promise<ApiResponse<{ apiKey: ApiKeyInfo & { key: string } }>> {
+    const response = await axiosInstance.get(`/api/api-keys/${id}`)
     return response.data
   },
 
   async deleteApiKey(id: string): Promise<ApiResponse> {
     const response = await axiosInstance.delete(`/api/api-keys/${id}`)
-    return response.data
-  },
-
-  async registerAsGiver(
-    name: string,
-    models: string[],
-  ): Promise<ApiResponse<{ giverId: string }>> {
-    const response = await axiosInstance.post('/api/giver/register', {
-      name,
-      models,
-    })
     return response.data
   },
 

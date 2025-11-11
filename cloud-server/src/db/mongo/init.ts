@@ -4,7 +4,6 @@ import mongoose, { Model, Connection } from 'mongoose'
 import { MONGO_URL } from '../../config/config'
 import UserSchema, { IUser } from './models/User.schema'
 import GiverSchema, { IGiver } from './models/Giver.schema'
-import TunnelSchema, { ITunnel } from './models/Tunnel.schema'
 import ApiKeySchema, { IApiKey } from './models/ApiKey.schema'
 import TerminalSessionSchema, {
   ITerminalSession,
@@ -20,7 +19,6 @@ let connection: Connection | null = null
 interface Db {
   UserModel: Model<IUser>
   GiverModel: Model<IGiver>
-  TunnelModel: Model<ITunnel>
   ApiKeyModel: Model<IApiKey>
   TerminalSessionModel: Model<ITerminalSession>
 }
@@ -31,7 +29,6 @@ const connectDB = async () => {
 
     const UserModel = connection.model<IUser>('User', UserSchema)
     const GiverModel = connection.model<IGiver>('Giver', GiverSchema)
-    const TunnelModel = connection.model<ITunnel>('Tunnel', TunnelSchema)
     const ApiKeyModel = connection.model<IApiKey>('ApiKey', ApiKeySchema)
     const TerminalSessionModel = connection.model<ITerminalSession>(
       'TerminalSession',
@@ -41,7 +38,6 @@ const connectDB = async () => {
     db = {
       UserModel,
       GiverModel,
-      TunnelModel,
       ApiKeyModel,
       TerminalSessionModel,
     }

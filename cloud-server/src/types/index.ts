@@ -1,5 +1,5 @@
 import { Request } from 'express'
-import { WebSocket } from 'ws'
+import { IUser } from '../db/mongo/models/User.schema'
 
 export interface JWTPayload {
   userId: string
@@ -9,7 +9,15 @@ export interface JWTPayload {
 }
 
 export interface AuthenticatedRequest extends Request {
-  user?: JWTPayload
+  user?: {
+    _id: string
+    id: string
+    email: string
+    name: string
+    userId: string
+    createdAt: Date
+    updatedAt: Date
+  }
 }
 
 export interface Giver {
@@ -22,16 +30,6 @@ export interface Giver {
   endpoint?: string
 }
 
-export interface Tunnel {
-  id: string
-  giverId?: string | null
-  model: string
-  giverWs?: WebSocket
-  takerWs?: WebSocket
-  createdAt: Date
-  status: 'active' | 'closed' | 'waiting'
-}
-
 export interface User {
   id: string
   email: string
@@ -39,15 +37,6 @@ export interface User {
   password?: string
   createdAt: Date
   updatedAt: Date
-}
-
-export interface RegisterGiverRequest {
-  name: string
-  models: string[]
-}
-
-export interface CreateTunnelRequest {
-  model: string
 }
 
 export interface LoginRequest {

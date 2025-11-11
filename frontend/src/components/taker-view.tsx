@@ -23,19 +23,11 @@ import { useUIStore } from '@/lib/stores/ui.store'
 import { Loader2, Send, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
 
 export function TakerView() {
+  const { availableModels, error: modelsError } = useModels()
   const {
-    availableModels,
-    loading: modelsLoading,
-    error: modelsError,
-  } = useModels()
-  const {
-    connected,
-    connecting,
     error: tunnelError,
     response,
     loading: inferenceLoading,
-    connect,
-    disconnect,
     sendMessage,
   } = useTunnel()
 
@@ -53,6 +45,7 @@ export function TakerView() {
   )
 
   const error = modelsError || tunnelError
+  const canSendPrompt = Boolean(selectedModel && selectedModel.length > 0)
 
   return (
     <div className="space-y-6">
@@ -86,7 +79,7 @@ export function TakerView() {
             <Select
               value={selectedModel}
               onValueChange={setSelectedModel}
-              disabled={connected || connecting}
+              disabled={inferenceLoading}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Choose a model" />
@@ -127,35 +120,14 @@ export function TakerView() {
               </div>
             </div>
           )}
-
-          {connected ? (
-            <Button
-              onClick={disconnect}
-              variant="destructive"
-              className="w-full"
-            >
-              Disconnect
-            </Button>
-          ) : (
-            <Button
-              onClick={connect}
-              disabled={!selectedModel || connecting || modelsLoading}
-              className="w-full"
-            >
-              {connecting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Connecting...
-                </>
-              ) : (
-                'Connect to Model'
-              )}
-            </Button>
-          )}
+          <p className="text-xs text-muted-foreground">
+            Select a model and provide an API key (optional). Prompts are sent
+            on demand without maintaining a persistent connection.
+          </p>
         </CardContent>
       </Card>
 
-      {connected && (
+      {canSendPrompt && (
         <Card>
           <CardHeader>
             <CardTitle>Inference Request</CardTitle>

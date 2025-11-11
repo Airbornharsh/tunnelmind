@@ -1,60 +1,68 @@
-import { v4 as uuidv4 } from 'uuid'
 import { db } from '../db/mongo/init'
-import { Giver, RegisterGiverRequest } from '../types'
+import { Giver } from '../types'
 
 export class GiverService {
-  static async register(
+  static async upsertGiverFromConnection(
     userId: string,
-    data: RegisterGiverRequest,
-  ): Promise<{ giverId: string } | null> {
+    name: string | null,
+    models?: string[],
+  ): Promise<Giver | null> {
     try {
-      if (!db?.GiverModel) {
-        throw new Error('Database not initialized')
-      }
+      const now = new Date()
+      const giverModels =
+        models && Array.isArray(models) && models.length > 0
+          ? models
+          : undefined
 
-      const existingGiver = await db.GiverModel.findOne({ userId })
-      if (existingGiver && existingGiver._id) {
-        existingGiver.name = data.name
-        existingGiver.models = data.models
-        existingGiver.status = 'offline'
-        existingGiver.lastSeen = new Date()
-        await existingGiver.save()
+      let giver = await db.GiverModel.findOne({ userId })
 
-        return {
-          giverId: existingGiver._id.toString(),
+      const normalizedName =
+        typeof name === 'string' && name.trim().length > 0
+          ? name.trim()
+          : giver?.name || 'Unnamed Giver'
+
+      if (!giver) {
+        giver = await db.GiverModel.create({
+          userId,
+          name: normalizedName,
+          models: giverModels || [],
+          status: 'online',
+          lastSeen: now,
+        })
+      } else {
+        giver.name = normalizedName
+        if (giverModels) {
+          giver.models = giverModels
         }
+        giver.status = 'online'
+        giver.lastSeen = now
+        await giver.save()
       }
 
-      const giver = await db.GiverModel.create({
-        userId,
-        name: data.name,
-        models: data.models,
-        status: 'offline',
-        lastSeen: new Date(),
-      })
-
-      if (!giver || !giver._id) {
-        throw new Error('Failed to create giver')
+      if (!giver._id) {
+        throw new Error('Failed to find giver')
       }
 
       return {
-        giverId: giver._id.toString(),
+        id: giver._id.toString(),
+        userId: giver.userId.toString(),
+        name: giver.name,
+        status: giver.status,
+        models: Array.isArray(giver.models) ? giver.models : [],
+        lastSeen: giver.lastSeen,
+        endpoint: giver.endpoint,
       }
     } catch (error: any) {
       return null
     }
   }
 
-  static async updateStatus(
+  static async setStatus(
     giverId: string,
     status: 'online' | 'offline',
     models?: string[],
   ): Promise<boolean> {
     try {
-      if (!db?.GiverModel) {
-        throw new Error('Database not initialized')
-      }
-
       const giver = await db.GiverModel.findById(giverId)
       if (!giver) {
         return false
@@ -76,10 +84,6 @@ export class GiverService {
 
   static async getGiver(giverId: string): Promise<Giver | null> {
     try {
-      if (!db?.GiverModel) {
-        throw new Error('Database not initialized')
-      }
-
       const giver = await db.GiverModel.findById(giverId).populate('userId')
       if (!giver || !giver._id) {
         return null
@@ -90,7 +94,7 @@ export class GiverService {
         userId: giver.userId.toString(),
         name: giver.name,
         status: giver.status,
-        models: giver.models,
+        models: Array.isArray(giver.models) ? giver.models : [],
         lastSeen: giver.lastSeen,
         endpoint: giver.endpoint,
       }
@@ -101,10 +105,6 @@ export class GiverService {
 
   static async getAvailableGivers(): Promise<Giver[]> {
     try {
-      if (!db?.GiverModel) {
-        throw new Error('Database not initialized')
-      }
-
       const givers = await db.GiverModel.find({ status: 'online' }).populate(
         'userId',
       )
@@ -134,10 +134,6 @@ export class GiverService {
     giverId?: string,
   ): Promise<Giver | null> {
     try {
-      if (!db?.GiverModel) {
-        throw new Error('Database not initialized')
-      }
-
       let giver
 
       if (giverId) {
@@ -186,10 +182,6 @@ export class GiverService {
     { model: string; givers: { id: string; name: string }[] }[]
   > {
     try {
-      if (!db?.GiverModel) {
-        throw new Error('Database not initialized')
-      }
-
       const givers = await db.GiverModel.find({ status: 'online' }).populate(
         'userId',
       )

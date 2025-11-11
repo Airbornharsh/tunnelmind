@@ -23,10 +23,6 @@ export class AuthService {
     data: RegisterRequest,
   ): Promise<{ user: any; token: string; apiKey?: string } | null> {
     try {
-      if (!db?.UserModel) {
-        throw new Error('Database not initialized')
-      }
-
       const existingUser = await db.UserModel.findOne({ email: data.email })
       if (existingUser) {
         return null
@@ -50,23 +46,21 @@ export class AuthService {
 
       let apiKey: string | null = null
       try {
-        if (db?.ApiKeyModel) {
-          const rawKey = crypto.randomBytes(32).toString('hex')
-          const hashedKey = crypto
-            .createHash('sha256')
-            .update(rawKey)
-            .digest('hex')
-          const prefix = rawKey.substring(0, 8)
+        const rawKey = crypto.randomBytes(32).toString('hex')
+        const hashedKey = crypto
+          .createHash('sha256')
+          .update(rawKey)
+          .digest('hex')
+        const prefix = rawKey.substring(0, 8)
 
-          await db.ApiKeyModel.create({
-            userId: user._id,
-            name: 'Default API Key',
-            key: hashedKey,
-            prefix,
-          })
+        await db.ApiKeyModel.create({
+          userId: user._id,
+          name: 'Default API Key',
+          key: hashedKey,
+          prefix,
+        })
 
-          apiKey = rawKey
-        }
+        apiKey = rawKey
       } catch (error) {}
 
       return {
@@ -87,10 +81,6 @@ export class AuthService {
     data: LoginRequest,
   ): Promise<{ user: any; token: string } | null> {
     try {
-      if (!db?.UserModel) {
-        throw new Error('Database not initialized')
-      }
-
       const user = await db.UserModel.findOne({ email: data.email }).select(
         '+password',
       )

@@ -14,19 +14,25 @@ class Session {
     }
   }
 
-  static async setSession(session: {
-    email: string
-    token: string
-  }): Promise<void> {
+  static setSession(session: { email: string; token: string }): void {
     try {
       fs.writeFileSync(sessionPath, JSON.stringify(session))
     } catch {}
   }
 
-  static async deleteSession(): Promise<void> {
+  static deleteSession(): void {
     try {
       fs.unlinkSync(sessionPath)
     } catch {}
+  }
+
+  static async getSessionToken(): Promise<string | null> {
+    const session = await this.getSession()
+    if (!session) {
+      return null
+    }
+
+    return session.token
   }
 }
 

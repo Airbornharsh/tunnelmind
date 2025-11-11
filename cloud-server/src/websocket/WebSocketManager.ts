@@ -1,16 +1,34 @@
 import { WebSocket, WebSocketServer } from 'ws'
 import { IncomingMessage } from 'http'
-import { Tunnel } from '../types'
-import { TunnelService } from '../services/tunnel.service'
+import { randomUUID } from 'crypto'
+import { Giver, JWTPayload } from '../types'
 import { GiverService } from '../services/giver.service'
-import { db } from '../db/mongo/init'
+import { AuthService } from '../services/auth.service'
+
+interface GiverConnection {
+  giverId: string
+  ws: WebSocket
+  models: Set<string>
+}
+
+interface PendingRequest {
+  giverId: string
+  chunks: string[]
+  resolve: (value: {
+    response: string
+    chunks: string[]
+    giverId: string
+  }) => void
+  reject: (reason?: any) => void
+  timeout: NodeJS.Timeout
+}
 
 class WebSocketManager {
   private static instance: WebSocketManager
   private wss: WebSocketServer | null = null
-  private giverConnections: Map<string, WebSocket> = new Map()
-  private takerConnections: Map<string, WebSocket> = new Map()
-  private tunnels: Map<string, Tunnel> = new Map()
+  private giverConnections: Map<string, GiverConnection> = new Map()
+  private modelConnections: Map<string, GiverConnection[]> = new Map()
+  private pendingRequests: Map<string, PendingRequest> = new Map()
 
   private constructor() {}
 
@@ -27,6 +45,33 @@ class WebSocketManager {
     console.log('✅ WebSocket Manager initialized')
   }
 
+  private updateModelConnections(
+    connection: GiverConnection,
+    models: string[],
+  ): void {
+    for (const [model, connections] of this.modelConnections.entries()) {
+      const filtered = connections.filter(
+        (entry) => entry.giverId !== connection.giverId,
+      )
+      if (filtered.length === 0) {
+        this.modelConnections.delete(model)
+      } else {
+        this.modelConnections.set(model, filtered)
+      }
+    }
+
+    connection.models = new Set(models)
+    models.forEach((model) => {
+      const trimmed = model.trim()
+      if (!trimmed) {
+        return
+      }
+      const list = this.modelConnections.get(trimmed) || []
+      list.push(connection)
+      this.modelConnections.set(trimmed, list)
+    })
+  }
+
   private async handleConnection(
     ws: WebSocket,
     req: IncomingMessage,
@@ -35,13 +80,23 @@ class WebSocketManager {
       const url = new URL(req.url || '', `http://${req.headers.host}`)
       const role = url.searchParams.get('role')
       const giverId = url.searchParams.get('giverId')
-      const tunnelId = url.searchParams.get('tunnelId')
+      const giverName = url.searchParams.get('giverName')
       const token = url.searchParams.get('token')
+      const payload = token ? AuthService.verifyToken(token) : null
+      const modelsParam = url.searchParams.get('models')
 
-      if (role === 'giver' && giverId) {
-        await this.handleGiverConnection(ws, giverId, token)
-      } else if (role === 'taker' && tunnelId && token) {
-        await this.handleTakerConnection(ws, tunnelId, token)
+      if (role === 'giver') {
+        if (!token) {
+          ws.close(1008, 'Token required')
+          return
+        }
+        await this.handleGiverConnection(
+          ws,
+          giverId,
+          giverName,
+          payload,
+          modelsParam,
+        )
       } else {
         ws.close(1008, 'Invalid connection parameters')
       }
@@ -53,230 +108,261 @@ class WebSocketManager {
 
   private async handleGiverConnection(
     ws: WebSocket,
-    giverId: string,
-    token: string | null,
+    providedGiverId: string | null,
+    giverName: string | null,
+    payload: JWTPayload | null,
+    modelsParam: string | null,
   ): Promise<void> {
     try {
-      if (token) {
-        const { AuthService } = await import('../services/auth.service')
-        const payload = AuthService.verifyToken(token)
-        if (!payload) {
-          ws.close(1008, 'Invalid token')
-          return
+      if (!payload || payload.type !== 'terminal') {
+        ws.close(1008, 'Invalid token')
+        return
+      }
+
+      const initialModels =
+        modelsParam && modelsParam.length > 0
+          ? modelsParam
+              .split(',')
+              .map((model) => model.trim())
+              .filter(Boolean)
+          : undefined
+
+      let giverRecord = null
+
+      if (providedGiverId) {
+        const existing = await GiverService.getGiver(providedGiverId)
+        if (existing) {
+          if (existing.userId !== payload.userId) {
+            ws.close(1008, 'Token does not match giver owner')
+            return
+          }
+          giverRecord = await GiverService.upsertGiverFromConnection(
+            payload.userId,
+            giverName || existing.name,
+            initialModels,
+          )
         }
       }
 
-      console.log(`🔌 Giver connected: ${giverId}`)
-      this.giverConnections.set(giverId, ws)
-
-      await GiverService.updateStatus(giverId, 'online')
-
-      ws.on('message', async (data: Buffer) => {
-        try {
-          const message = JSON.parse(data.toString())
-          await this.handleGiverMessage(giverId, message)
-        } catch (error) {
-          console.error('Error handling giver message:', error)
-        }
-      })
-
-      ws.on('close', async () => {
-        console.log(`🔌 Giver disconnected: ${giverId}`)
-        this.giverConnections.delete(giverId)
-
-        await GiverService.updateStatus(giverId, 'offline')
-
-        const tunnels = Array.from(this.tunnels.values()).filter(
-          (t) => t.giverId === giverId,
+      if (!giverRecord) {
+        giverRecord = await GiverService.upsertGiverFromConnection(
+          payload.userId,
+          giverName,
+          initialModels,
         )
+      }
 
-        for (const tunnel of tunnels) {
-          await this.reconnectTunnel(tunnel)
-        }
-      })
+      if (!giverRecord) {
+        ws.close(1011, 'Failed to initialize giver connection')
+        return
+      }
 
-      ws.on('error', (error) => {
-        console.error(`Giver connection error (${giverId}):`, error)
-      })
+      this.registerConnection(ws, giverRecord, initialModels)
     } catch (error: any) {
       console.error('Error handling giver connection:', error)
       ws.close(1011, 'Internal server error')
     }
   }
 
-  private async handleTakerConnection(
+  private registerConnection(
     ws: WebSocket,
-    tunnelId: string,
-    token: string,
-  ): Promise<void> {
-    try {
-      if (!token) {
-        ws.close(1008, 'Token/API key required')
-        return
-      }
+    giver: Giver,
+    initialModels?: string[],
+  ): void {
+    const giverId = giver.id
+    console.log(`🔌 Giver connected: ${giverId}`)
 
-      const tunnelResult = await TunnelService.getTunnel(tunnelId)
-      if (!tunnelResult) {
-        ws.close(1008, 'Tunnel not found')
-        return
-      }
-
-      const tunnelData = tunnelResult
-      const model = tunnelData.model
-
-      const giverResult = await GiverService.findGiverByModel(model)
-      if (!giverResult) {
-        ws.close(1008, `No available giver with model: ${model}`)
-        await TunnelService.unassignGiver(tunnelId)
-        return
-      }
-
-      const giver = giverResult
-      const giverId = giver.id
-      const giverWs = this.giverConnections.get(giverId)
-
-      if (!giverWs || giverWs.readyState !== WebSocket.OPEN) {
-        ws.close(1008, 'Giver not available')
-        await TunnelService.unassignGiver(tunnelId)
-        return
-      }
-
-      await TunnelService.assignGiver(tunnelId, giverId)
-
-      console.log(
-        `🔌 Connection established to tunnel: ${tunnelId} with giver: ${giverId} for model: ${model}`,
-      )
-
-      const tunnel: Tunnel = {
-        id: tunnelId,
-        giverId,
-        model,
-        giverWs,
-        takerWs: ws,
-        createdAt: new Date(tunnelData.createdAt),
-        status: 'active',
-      }
-
-      this.tunnels.set(tunnelId, tunnel)
-      this.takerConnections.set(tunnelId, ws)
-
-      ws.on('message', (data: Buffer) => {
-        if (giverWs.readyState === WebSocket.OPEN) {
-          giverWs.send(data)
-        }
-      })
-
-      giverWs.on('message', (data: Buffer) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(data)
-        }
-      })
-
-      ws.on('close', async () => {
-        console.log(`🔌 Connection closed for tunnel: ${tunnelId}`)
-        this.takerConnections.delete(tunnelId)
-        this.tunnels.delete(tunnelId)
-        await TunnelService.closeTunnel(tunnelId)
-      })
-
-      ws.on('error', (error) => {
-        console.error(`Taker connection error (${tunnelId}):`, error)
-      })
-    } catch (error: any) {
-      console.error('Error handling taker connection:', error)
-      ws.close(1011, 'Internal server error')
+    const connection: GiverConnection = {
+      giverId,
+      ws,
+      models: new Set(),
     }
+
+    this.giverConnections.set(giverId, connection)
+
+    const modelsToTrack =
+      initialModels && initialModels.length > 0
+        ? initialModels
+        : giver.models || []
+
+    if (modelsToTrack.length > 0) {
+      this.updateModelConnections(connection, modelsToTrack)
+    }
+
+    const statusModels = modelsToTrack.length > 0 ? modelsToTrack : undefined
+
+    GiverService.setStatus(giverId, 'online', statusModels).catch((error) => {
+      console.warn(`Failed to update giver status for ${giverId}:`, error)
+    })
+
+    ws.on('message', async (data: Buffer) => {
+      try {
+        const message = JSON.parse(data.toString())
+        await this.handleGiverMessage(connection, message)
+      } catch (error) {
+        console.error('Error handling giver message:', error)
+      }
+    })
+
+    ws.on('close', async () => {
+      console.log(`🔌 Giver disconnected: ${giverId}`)
+      this.giverConnections.delete(giverId)
+      this.updateModelConnections(connection, [])
+
+      await GiverService.setStatus(giverId, 'offline')
+
+      const pendingForGiver = Array.from(this.pendingRequests.entries()).filter(
+        ([, pending]) => pending.giverId === giverId,
+      )
+      pendingForGiver.forEach(([requestId, pending]) => {
+        clearTimeout(pending.timeout)
+        pending.reject(new Error('Giver disconnected'))
+        this.pendingRequests.delete(requestId)
+      })
+    })
+
+    ws.on('error', (error) => {
+      console.error(`Giver connection error (${giverId}):`, error)
+    })
   }
 
   private async handleGiverMessage(
-    giverId: string,
+    connection: GiverConnection,
     message: any,
   ): Promise<void> {
     if (message.type === 'ping') {
-      const ws = this.giverConnections.get(giverId)
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'pong' }))
+      if (connection.ws.readyState === WebSocket.OPEN) {
+        connection.ws.send(JSON.stringify({ type: 'pong' }))
       }
+      return
+    }
+
+    if (message.type === 'giver_ready') {
+      if (connection.ws.readyState === WebSocket.OPEN) {
+        connection.ws.send(JSON.stringify({ type: 'giver_ready_ack' }))
+      }
+      return
+    }
+
+    const requestId = message.requestId
+    if (!requestId || typeof requestId !== 'string') {
+      return
+    }
+
+    const pending = this.pendingRequests.get(requestId)
+    if (!pending) {
+      return
+    }
+
+    switch (message.type) {
+      case 'inference_chunk': {
+        if (typeof message.chunk === 'string') {
+          pending.chunks.push(message.chunk)
+        }
+        break
+      }
+      case 'inference_complete': {
+        clearTimeout(pending.timeout)
+        this.pendingRequests.delete(requestId)
+        const response =
+          typeof message.response === 'string'
+            ? message.response
+            : pending.chunks.join('')
+        pending.resolve({
+          response,
+          chunks: pending.chunks,
+          giverId: pending.giverId,
+        })
+        break
+      }
+      case 'inference_error': {
+        clearTimeout(pending.timeout)
+        this.pendingRequests.delete(requestId)
+        pending.reject(
+          new Error(
+            typeof message.error === 'string'
+              ? message.error
+              : 'Inference request failed',
+          ),
+        )
+        break
+      }
+      default:
+        break
     }
   }
 
-  private async reconnectTunnel(tunnel: Tunnel): Promise<void> {
-    try {
-      const giverResult = await GiverService.findGiverByModel(tunnel.model)
-      if (!giverResult) {
-        if (tunnel.takerWs && tunnel.takerWs.readyState === WebSocket.OPEN) {
-          tunnel.takerWs.send(
-            JSON.stringify({
-              type: 'giver_disconnected',
-              message: 'Giver disconnected, waiting for another giver...',
-            }),
+  async requestInference(
+    model: string,
+    payload: {
+      prompt: string
+      options?: Record<string, unknown>
+      userId?: string
+    },
+    timeoutMs = 60_000,
+  ): Promise<{ response: string; chunks: string[]; giverId: string }> {
+    const trimmedModel = model.trim()
+    if (!trimmedModel) {
+      throw new Error('Model is required')
+    }
+
+    const candidates = (this.modelConnections.get(trimmedModel) || []).filter(
+      (connection) => connection.ws.readyState === WebSocket.OPEN,
+    )
+
+    if (candidates.length === 0) {
+      throw new Error(`No available giver for model: ${trimmedModel}`)
+    }
+
+    const connection = candidates[0]
+    const ws = connection.ws
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Selected giver connection is not open')
+    }
+
+    const requestId = randomUUID()
+    const message = {
+      type: 'inference_request',
+      requestId,
+      model: trimmedModel,
+      prompt: payload.prompt,
+      options: payload.options,
+      userId: payload.userId,
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId)
+        reject(new Error('Inference request timed out'))
+      }, timeoutMs)
+
+      this.pendingRequests.set(requestId, {
+        giverId: connection.giverId,
+        chunks: [],
+        resolve,
+        reject,
+        timeout,
+      })
+
+      ws.send(JSON.stringify(message), (err) => {
+        if (err) {
+          clearTimeout(timeout)
+          this.pendingRequests.delete(requestId)
+          reject(
+            new Error(
+              `Failed to send inference request: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            ),
           )
         }
-        await TunnelService.unassignGiver(tunnel.id)
-        tunnel.status = 'waiting'
-        tunnel.giverId = null
-        tunnel.giverWs = undefined
-        return
-      }
-
-      const newGiver = giverResult
-      const newGiverWs = this.giverConnections.get(newGiver.id)
-
-      if (!newGiverWs || newGiverWs.readyState !== WebSocket.OPEN) {
-        await TunnelService.unassignGiver(tunnel.id)
-        tunnel.status = 'waiting'
-        tunnel.giverId = null
-        tunnel.giverWs = undefined
-        return
-      }
-
-      await TunnelService.assignGiver(tunnel.id, newGiver.id)
-
-      tunnel.giverId = newGiver.id
-      tunnel.giverWs = newGiverWs
-      tunnel.status = 'active'
-
-      if (tunnel.takerWs && tunnel.takerWs.readyState === WebSocket.OPEN) {
-        tunnel.takerWs.send(
-          JSON.stringify({
-            type: 'giver_reconnected',
-            message: `Reconnected to new giver: ${newGiver.name}`,
-          }),
-        )
-      }
-
-      if (tunnel.takerWs) {
-        newGiverWs.on('message', (data: Buffer) => {
-          if (tunnel.takerWs && tunnel.takerWs.readyState === WebSocket.OPEN) {
-            tunnel.takerWs.send(data)
-          }
-        })
-
-        tunnel.takerWs.on('message', (data: Buffer) => {
-          if (newGiverWs.readyState === WebSocket.OPEN) {
-            newGiverWs.send(data)
-          }
-        })
-      }
-
-      console.log(
-        `🔄 Tunnel ${tunnel.id} reconnected to giver ${newGiver.id} for model ${tunnel.model}`,
-      )
-    } catch (error: any) {
-      console.error(`Error reconnecting tunnel ${tunnel.id}:`, error)
-      await TunnelService.unassignGiver(tunnel.id)
-      tunnel.status = 'waiting'
-      tunnel.giverId = null
-      tunnel.giverWs = undefined
-    }
+      })
+    })
   }
 
   getGiverConnection(giverId: string): WebSocket | undefined {
-    return this.giverConnections.get(giverId)
-  }
-
-  getTakerConnection(tunnelId: string): WebSocket | undefined {
-    return this.takerConnections.get(tunnelId)
+    return this.giverConnections.get(giverId)?.ws
   }
 }
 

@@ -8,4 +8,5 @@ apiKeyRouter.use(AuthMiddleware.authMiddleware)
 
 apiKeyRouter.post('/', ApiKeyController.createApiKey)
 apiKeyRouter.get('/', ApiKeyController.getApiKeys)
+apiKeyRouter.get('/:id', ApiKeyController.getApiKey)
 apiKeyRouter.delete('/:id', ApiKeyController.deleteApiKey)

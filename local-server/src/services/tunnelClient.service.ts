@@ -1,14 +1,14 @@
-import axios from 'axios'
 import WebSocket from 'ws'
 import { OllamaService } from './ollama.service'
+import Session from '../utils/session'
 
 export class TunnelClient {
   private cloudUrl: string
   private giverName: string
-  private giverId?: string
   private ws?: WebSocket
   private ollamaService: OllamaService
   private reconnectInterval?: NodeJS.Timeout
+  private sessionToken?: string
 
   constructor(
     cloudUrl: string,
@@ -20,54 +20,25 @@ export class TunnelClient {
     this.ollamaService = ollamaService
   }
 
-  async register(): Promise<void> {
-    try {
-      const isHealthy = await this.ollamaService.checkHealth()
-      if (!isHealthy) {
-        throw new Error('Ollama is not running or not accessible')
-      }
-
-      const models = await this.ollamaService.listModels()
-      const modelNames = models.map((m) => m.name)
-
-      if (modelNames.length === 0) {
-        throw new Error(
-          'No models found in Ollama. Please download models first.',
-        )
-      }
-
-      const response = await axios.post(
-        `${this.cloudUrl}/api/giver/register`,
-        {
-          name: this.giverName,
-          models: modelNames,
-        },
-        {
-          headers: {
-            'X-CLI-Token': 'local-verification',
-          },
-        },
-      )
-
-      if (response.data.success && response.data.data) {
-        this.giverId = response.data.data.giverId
-        console.log(`✅ Registered as giver: ${this.giverId}`)
-      } else {
-        throw new Error(response.data.error || 'Registration failed')
-      }
-    } catch (error: any) {
-      if (error.response) {
-        throw new Error(
-          `Failed to register: ${error.response.data?.error || error.message}`,
-        )
-      }
-      throw new Error(`Failed to register: ${error.message}`)
-    }
-  }
-
   async connect(): Promise<void> {
-    if (!this.giverId) {
-      throw new Error('Not registered. Call register() first.')
+    const sessionToken =
+      this.sessionToken || (await Session.getSessionToken()) || null
+
+    if (!sessionToken) {
+      throw new Error(
+        'Session token not found. Please login using `tunnelmind login`.',
+      )
+    }
+
+    this.sessionToken = sessionToken
+
+    const models = await this.ollamaService.listModels()
+    const modelNames = models.map((m) => m.name)
+
+    if (modelNames.length === 0) {
+      throw new Error(
+        'No models available locally. Please pull a model with `ollama pull <model-name>`.',
+      )
     }
 
     const wsUrl = new URL(
@@ -75,15 +46,20 @@ export class TunnelClient {
     )
     wsUrl.pathname = '/ws'
     wsUrl.searchParams.set('role', 'giver')
-    wsUrl.searchParams.set('giverId', this.giverId)
+    wsUrl.searchParams.set('token', sessionToken)
+    wsUrl.searchParams.set('giverName', this.giverName)
+    if (modelNames.length > 0) {
+      wsUrl.searchParams.set('models', modelNames.join(','))
+    }
 
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(wsUrl.toString())
 
       this.ws.on('open', () => {
         console.log('✅ WebSocket connected')
-        this.updateStatus('online').catch((err) => {
-          console.warn('Failed to update status:', err.message)
+        this.send({
+          type: 'giver_ready',
+          giverName: this.giverName,
         })
         this.scheduleHeartbeat()
         resolve()
@@ -100,7 +76,6 @@ export class TunnelClient {
 
       this.ws.on('close', () => {
         console.log('⚠️  WebSocket closed. Attempting to reconnect...')
-        this.updateStatus('offline').catch(() => {})
         this.scheduleReconnect()
         reject(new Error('Connection closed'))
       })
@@ -112,22 +87,6 @@ export class TunnelClient {
     })
   }
 
-  private async updateStatus(status: 'online' | 'offline'): Promise<void> {
-    if (!this.giverId) return
-
-    try {
-      const models = await this.ollamaService.listModels()
-      const modelNames = models.map((m) => m.name)
-
-      await axios.post(`${this.cloudUrl}/api/giver/${this.giverId}/status`, {
-        status,
-        models: modelNames,
-      })
-    } catch (error: any) {
-      console.warn(`Failed to update status: ${error.message}`)
-    }
-  }
-
   private async handleMessage(data: Buffer): Promise<void> {
     const message = JSON.parse(data.toString())
 
@@ -137,6 +96,8 @@ export class TunnelClient {
         break
       case 'ping':
         this.send({ type: 'pong' })
+        break
+      case 'pong':
         break
       default:
         console.warn('Unknown message type:', message.type)
@@ -241,9 +202,5 @@ export class TunnelClient {
     if (this.ws) {
       this.ws.close()
     }
-  }
-
-  getGiverId(): string | undefined {
-    return this.giverId
   }
 }

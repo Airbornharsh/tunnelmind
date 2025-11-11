@@ -8,5 +8,3 @@ giverRouter.use(AuthMiddleware.authMiddleware)
 
 giverRouter.get('/', GiverController.getAvailableGivers)
 giverRouter.get('/:id', GiverController.getGiver)
-giverRouter.post('/register', GiverController.register)
-giverRouter.post('/:id/status', GiverController.updateStatus)

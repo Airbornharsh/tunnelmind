@@ -24,7 +24,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
       const result = await api.getApiKeys()
       if (result.success && result.data) {
         set({
-          apiKeys: result.data,
+          apiKeys: result.data.apiKeys,
           loading: false,
           error: null,
         })

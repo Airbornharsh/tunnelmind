@@ -67,6 +67,36 @@ export class ApiKeyController {
     })
   }
 
+  static async getApiKey(
+    req: AuthenticatedRequest,
+    res: Response<ApiResponse>,
+  ): Promise<void> {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+      })
+      return
+    }
+    const { id } = req.params
+    const apiKey = await ApiKeyService.getApiKey(req.user.userId, id)
+
+    if (!apiKey) {
+      res.status(404).json({
+        success: false,
+        error: 'API key not found',
+      })
+      return
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        apiKey: apiKey,
+      },
+    })
+  }
+
   static async deleteApiKey(
     req: AuthenticatedRequest,
     res: Response<ApiResponse>,

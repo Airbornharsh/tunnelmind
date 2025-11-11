@@ -1,150 +1,90 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { create } from 'zustand'
-import { api, Tunnel } from '@/lib/api'
+import { api } from '@/lib/api'
+
+interface ActiveSession {
+  model: string
+  giverId?: string
+}
 
 interface TunnelState {
-  tunnel: Tunnel | null
-  ws: WebSocket | null
-  connected: boolean
-  connecting: boolean
+  tunnel: ActiveSession | null
   error: string | null
   response: string
   loading: boolean
-  connect: (model: string, apiKey?: string) => Promise<void>
-  disconnect: () => void
-  sendMessage: (prompt: string, model: string, options?: any) => void
+  currentModel: string | null
+  apiKey?: string
+  requestInference: (
+    prompt: string,
+    model: string,
+    apiKey?: string,
+    options?: any,
+  ) => Promise<void>
   clearResponse: () => void
 }
 
 export const useTunnelStore = create<TunnelState>((set, get) => ({
   tunnel: null,
-  ws: null,
-  connected: false,
-  connecting: false,
   error: null,
   response: '',
   loading: false,
+  currentModel: null,
+  apiKey: undefined,
 
-  connect: async (model: string, apiKey?: string) => {
+  requestInference: async (
+    prompt: string,
+    model: string,
+    apiKey?: string,
+    options?: any,
+  ) => {
     const state = get()
-    if (state.connecting || state.connected) return
+    const trimmedModel = (model || '').trim()
+    const activeModel = trimmedModel || state.currentModel
 
-    set({ connecting: true, error: null })
-
-    try {
-      const tunnel = await api.createTunnel(model, apiKey)
-
-      const wsUrl = tunnel.wsUrl
-        .replace('http://', 'ws://')
-        .replace('https://', 'wss://')
-
-      const websocket = new WebSocket(wsUrl)
-
-      websocket.onopen = () => {
-        set({
-          connected: true,
-          connecting: false,
-          tunnel,
-          ws: websocket,
-          error: null,
-        })
-      }
-
-      websocket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-
-          if (data.type === 'inference_chunk') {
-            set((state) => ({
-              response: state.response + data.chunk,
-            }))
-          } else if (data.type === 'inference_complete') {
-            set({
-              response: data.response,
-              loading: false,
-            })
-          } else if (data.type === 'inference_error') {
-            set({
-              error: data.error,
-              loading: false,
-            })
-          } else if (data.type === 'giver_disconnected') {
-            set((state) => ({
-              response: state.response + '\n\n⚠️ ' + data.message,
-            }))
-          } else if (data.type === 'giver_reconnected') {
-            set((state) => ({
-              response: state.response + '\n\n✅ ' + data.message,
-            }))
-          }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error)
-        }
-      }
-
-      websocket.onerror = (error) => {
-        console.error('WebSocket error:', error)
-        set({
-          connecting: false,
-          connected: false,
-          error: 'WebSocket connection error',
-        })
-      }
-
-      websocket.onclose = () => {
-        set({
-          connected: false,
-          connecting: false,
-          ws: null,
-          tunnel: null,
-        })
-      }
-    } catch (error: any) {
-      set({
-        connecting: false,
-        error: error.message || 'Failed to create tunnel',
-      })
-    }
-  },
-
-  disconnect: () => {
-    const state = get()
-    if (state.ws) {
-      state.ws.close()
-    }
-    set({
-      connected: false,
-      connecting: false,
-      ws: null,
-      tunnel: null,
-      response: '',
-      error: null,
-    })
-  },
-
-  sendMessage: (prompt: string, model: string, options?: any) => {
-    const state = get()
-    if (
-      !state.ws ||
-      !state.connected ||
-      state.ws.readyState !== WebSocket.OPEN
-    ) {
-      set({ error: 'Not connected to tunnel' })
+    if (!activeModel) {
+      set({ error: 'Model is required' })
       return
     }
 
-    set({ response: '', loading: true, error: null })
-
-    const message = {
-      type: 'inference_request',
-      requestId: Date.now().toString(),
-      model,
-      prompt,
-      options: options || {
-        temperature: 0.7,
-      },
+    const trimmedPrompt = prompt?.trim()
+    if (!trimmedPrompt) {
+      set({ error: 'Prompt is required' })
+      return
     }
 
-    state.ws.send(JSON.stringify(message))
+    set({
+      loading: true,
+      error: null,
+      response: '',
+      apiKey: apiKey ?? state.apiKey,
+      currentModel: activeModel,
+      tunnel: { model: activeModel, giverId: state.tunnel?.giverId },
+    })
+
+    try {
+      const result = await api.requestInference(
+        activeModel,
+        trimmedPrompt,
+        options,
+        apiKey ?? state.apiKey,
+      )
+
+      set((currentState) => ({
+        loading: false,
+        response: result.response,
+        tunnel: currentState.tunnel
+          ? {
+              ...currentState.tunnel,
+              giverId: result.giverId || currentState.tunnel.giverId,
+            }
+          : currentState.tunnel,
+      }))
+    } catch (error: any) {
+      set({
+        loading: false,
+        error: error?.message || 'Failed to process inference request',
+      })
+    }
   },
 
   clearResponse: () => {

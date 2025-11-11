@@ -130,6 +130,7 @@ export class AuthController {
       data: {
         userId: req.user.userId,
         email: req.user.email,
+        name: req.user.name,
       },
     })
   }
