@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/auth.store'
 import { Sidebar } from '@/components/sidebar'
@@ -8,11 +8,7 @@ import { Header } from '@/components/header'
 import { Loader2 } from 'lucide-react'
 import { getTerminalToken, setTerminalToken } from '@/utils/session'
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -98,3 +94,13 @@ export default function RootLayout({
     </div>
   )
 }
+
+const RootLayoutSuspense = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <RootLayout>{children}</RootLayout>
+    </Suspense>
+  )
+}
+
+export default RootLayoutSuspense
