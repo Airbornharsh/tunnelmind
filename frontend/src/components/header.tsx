@@ -5,8 +5,18 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuthStore } from '@/lib/stores/auth.store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { User, LogIn, Edit2, Check, X, Loader2 } from 'lucide-react'
+import {
+  User,
+  LogIn,
+  Edit2,
+  Check,
+  X,
+  Loader2,
+  Github,
+  Globe,
+} from 'lucide-react'
 import { useChat } from '@/lib/hooks/useChat'
+import Link from 'next/link'
 
 export function Header() {
   const router = useRouter()
@@ -111,6 +121,35 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-3">
+            <Link
+              href="https://harshkeshri.com"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+            >
+              <Globe className="h-4 w-4" />
+              Portfolio
+            </Link>
+            <Link
+              href="https://github.com/airbornharsh"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+            >
+              <Github className="h-4 w-4" />
+              GitHub
+            </Link>
+            <Link
+              href="https://github.com/airbornharsh/tunnelmind"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+            >
+              <Github className="h-4 w-4" />
+              Repo
+            </Link>
+          </div>
           {isAuthenticated && user ? (
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-2 text-sm">
