@@ -1,6 +1,6 @@
 {
   "name": "tunnelmind",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Local server for LLM givers",
   "license": "ISC",
   "author": "Harsh Keshri",
