@@ -105,7 +105,7 @@ export class TunnelClient {
   }
 
   private async handleInferenceRequest(message: any): Promise<void> {
-    const { requestId, model, openai, options } = message
+    const { requestId, model, openai } = message
 
     try {
       const openaiPayload =
@@ -113,83 +113,13 @@ export class TunnelClient {
           ? (openai as Record<string, any>)
           : null
 
-      if (
-        openaiPayload?.type === 'chat' &&
-        Array.isArray(openaiPayload.messages)
-      ) {
+      if (Array.isArray(openaiPayload?.messages)) {
         await this.handleOpenAIChatCompletion(requestId, model, openaiPayload)
         return
       }
-
-      let promptText = typeof message.prompt === 'string' ? message.prompt : ''
-
-      if (!promptText || typeof promptText !== 'string') {
-        throw new Error('Prompt is required for inference')
-      }
-
-      await this.handlePromptGeneration(requestId, model, promptText, options)
     } catch (error: any) {
       this.sendError(error.message, requestId)
     }
-  }
-
-  private async handlePromptGeneration(
-    requestId: string,
-    model: string,
-    prompt: string,
-    options?: Record<string, unknown>,
-  ): Promise<void> {
-    console.log(
-      `📥 Received inference request: ${requestId} for model: ${model}`,
-    )
-
-    const stream = await this.ollamaService.generate({
-      model,
-      prompt,
-      stream: true,
-      options,
-    })
-
-    let fullResponse = ''
-    let buffer = ''
-
-    stream.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString()
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const data = JSON.parse(line)
-            if (data.response) {
-              this.send({
-                type: 'inference_chunk',
-                requestId,
-                chunk: data.response,
-                done: data.done || false,
-              })
-              if (data.response) {
-                fullResponse += data.response
-              }
-            }
-          } catch (e) {}
-        }
-      }
-    })
-
-    stream.on('end', () => {
-      this.send({
-        type: 'inference_complete',
-        requestId,
-        response: fullResponse,
-      })
-      console.log(`✅ Completed inference request: ${requestId}`)
-    })
-
-    stream.on('error', (error: any) => {
-      this.sendError(error.message, requestId)
-    })
   }
 
   private async handleOpenAIChatCompletion(

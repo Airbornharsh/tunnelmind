@@ -18,7 +18,6 @@ interface TunnelState {
     prompt: string,
     model: string,
     apiKey?: string,
-    options?: any,
   ) => Promise<void>
   clearResponse: () => void
 }
@@ -31,12 +30,7 @@ export const useTunnelStore = create<TunnelState>((set, get) => ({
   currentModel: null,
   apiKey: undefined,
 
-  requestInference: async (
-    prompt: string,
-    model: string,
-    apiKey?: string,
-    options?: any,
-  ) => {
+  requestInference: async (prompt: string, model: string, apiKey?: string) => {
     const state = get()
     const trimmedModel = (model || '').trim()
     const activeModel = trimmedModel || state.currentModel
@@ -65,20 +59,13 @@ export const useTunnelStore = create<TunnelState>((set, get) => ({
       const result = await api.requestInference(
         activeModel,
         trimmedPrompt,
-        options,
         apiKey ?? state.apiKey,
       )
 
-      set((currentState) => ({
+      set({
         loading: false,
-        response: result.response,
-        tunnel: currentState.tunnel
-          ? {
-              ...currentState.tunnel,
-              giverId: result.giverId || currentState.tunnel.giverId,
-            }
-          : currentState.tunnel,
-      }))
+        response: result.choices[0].message.content,
+      })
     } catch (error: any) {
       set({
         loading: false,

@@ -9,8 +9,3 @@ takerRouter.get(
   AuthMiddleware.authMiddleware,
   TakerController.getAvailableModels,
 )
-takerRouter.post(
-  '/inference',
-  AuthMiddleware.apiKeyMiddleware,
-  TakerController.requestInference,
-)

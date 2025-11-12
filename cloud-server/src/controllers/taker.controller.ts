@@ -4,36 +4,6 @@ import { AuthenticatedRequest, ApiResponse } from '../types'
 import { GiverService } from '../services/giver.service'
 import { webSocketManager } from '../websocket/WebSocketManager'
 
-type OpenAIMessage = {
-  role: string
-  content:
-    | string
-    | null
-    | Array<{ type: string; text?: string | null; [key: string]: unknown }>
-  [key: string]: unknown
-}
-
-function getLastUserMessage(messages: OpenAIMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i]
-    if (message.role && message.role !== 'assistant') {
-      if (typeof message.content === 'string') {
-        return message.content.trim() || null
-      }
-      if (Array.isArray(message.content)) {
-        const text = message.content
-          .map((segment) =>
-            typeof segment?.text === 'string' ? segment.text : '',
-          )
-          .filter((segment) => segment && segment.trim().length > 0)
-          .join('\n')
-        return text.trim() || null
-      }
-    }
-  }
-  return null
-}
-
 export class TakerController {
   static async getAvailableModels(
     req: AuthenticatedRequest,
@@ -53,66 +23,6 @@ export class TakerController {
       success: true,
       data: result,
     })
-  }
-
-  static async requestInference(
-    req: AuthenticatedRequest,
-    res: Response<ApiResponse>,
-  ): Promise<void> {
-    try {
-      if (!req.user) {
-        res.status(401).json({
-          success: false,
-          error: 'Unauthorized',
-        })
-        return
-      }
-
-      const { model, prompt, options } = req.body || {}
-
-      const trimmedModel =
-        typeof model === 'string' ? model.trim() : (model as string)
-
-      if (!trimmedModel) {
-        res.status(400).json({
-          success: false,
-          error: 'Model is required',
-        })
-        return
-      }
-
-      const trimmedPrompt =
-        typeof prompt === 'string' ? prompt.trim() : (prompt as string)
-
-      if (!trimmedPrompt) {
-        res.status(400).json({
-          success: false,
-          error: 'Prompt is required',
-        })
-        return
-      }
-
-      const result = await webSocketManager.requestInference(trimmedModel, {
-        prompt: trimmedPrompt,
-        options,
-        userId: req.user.userId,
-      })
-
-      res.status(200).json({
-        success: true,
-        data: {
-          model: trimmedModel,
-          response: result.response,
-          chunks: result.chunks,
-          giverId: result.giverId,
-        },
-      })
-    } catch (error: any) {
-      res.status(503).json({
-        success: false,
-        error: error?.message || 'Failed to process inference request',
-      })
-    }
   }
 
   static async createChatCompletion(
@@ -142,16 +52,6 @@ export class TakerController {
         presence_penalty,
       } = req.body || {}
 
-      if (stream === true) {
-        res.status(400).json({
-          error: {
-            message: 'Streaming responses are not supported.',
-            type: 'invalid_request_error',
-          },
-        })
-        return
-      }
-
       const trimmedModel =
         typeof model === 'string' ? model.trim() : (model as string)
 
@@ -165,58 +65,155 @@ export class TakerController {
         return
       }
 
-      const chatMessages: OpenAIMessage[] = Array.isArray(messages)
-        ? (messages as OpenAIMessage[])
-        : []
+      const requestPayload = req.body || {}
 
-      const promptText = (() => {
-        const explicitPrompt =
-          typeof prompt === 'string' ? prompt.trim() : (prompt as string)
-        if (explicitPrompt && explicitPrompt.trim().length > 0) {
-          return explicitPrompt.trim()
+      const hasPromptInput = (() => {
+        if (typeof prompt === 'string' && prompt.trim().length > 0) {
+          return true
         }
-        const lastUserMessage =
-          chatMessages.length > 0 ? getLastUserMessage(chatMessages) : null
-        return lastUserMessage || ''
+        if (
+          typeof requestPayload.prompt === 'string' &&
+          requestPayload.prompt.trim().length > 0
+        ) {
+          return true
+        }
+        if (
+          typeof requestPayload.input === 'string' &&
+          requestPayload.input.trim().length > 0
+        ) {
+          return true
+        }
+        if (
+          Array.isArray(requestPayload.messages) &&
+          requestPayload.messages.length > 0
+        ) {
+          return true
+        }
+        return false
       })()
 
-      if (!promptText) {
+      if (!hasPromptInput) {
         res.status(400).json({
           error: {
             message:
-              'Either prompt or messages containing a user message are required.',
+              'Either prompt or messages must be provided in the request body.',
             type: 'invalid_request_error',
           },
         })
         return
       }
 
-      const result = await webSocketManager.requestInference(trimmedModel, {
-        prompt: promptText,
-        options: {
-          temperature,
-          max_tokens,
-          top_p,
-          frequency_penalty,
-          presence_penalty,
-        },
-        userId: req.user.userId,
-        openai:
-          chatMessages.length > 0
-            ? {
-                type: 'chat',
-                messages: chatMessages,
-                temperature,
-                top_p,
-                max_tokens,
-                frequency_penalty,
-                presence_penalty,
-              }
-            : undefined,
-      })
-
       const completionId = `chatcmpl-${randomUUID()}`
       const created = Math.floor(Date.now() / 1000)
+
+      if (stream === true) {
+        res.setHeader('Content-Type', 'text/event-stream')
+        res.setHeader('Cache-Control', 'no-cache, no-transform')
+        res.setHeader('Connection', 'keep-alive')
+        ;(res as any).flushHeaders?.()
+
+        let firstChunk = true
+        let streamClosed = false
+
+        const sendChunk = (chunk: string) => {
+          const payload = {
+            id: completionId,
+            object: 'chat.completion.chunk',
+            created,
+            model: trimmedModel,
+            choices: [
+              {
+                index: 0,
+                delta: firstChunk
+                  ? {
+                      role: 'assistant',
+                      content: chunk,
+                    }
+                  : {
+                      content: chunk,
+                    },
+                finish_reason: null,
+              },
+            ],
+          }
+          firstChunk = false
+          res.write(`data: ${JSON.stringify(payload)}\n\n`)
+        }
+
+        const sendDone = () => {
+          const finalPayload = {
+            id: completionId,
+            object: 'chat.completion.chunk',
+            created,
+            model: trimmedModel,
+            choices: [
+              {
+                index: 0,
+                delta: {},
+                finish_reason: 'stop',
+              },
+            ],
+          }
+          res.write(`data: ${JSON.stringify(finalPayload)}\n\n`)
+          res.write('data: [DONE]\n\n')
+          res.end()
+          streamClosed = true
+        }
+
+        const sendError = (errorMessage: string) => {
+          const errorPayload = {
+            error: {
+              message: errorMessage,
+              type: 'server_error',
+            },
+          }
+          res.write(`data: ${JSON.stringify(errorPayload)}\n\n`)
+          res.write('data: [DONE]\n\n')
+          res.end()
+          streamClosed = true
+        }
+
+        req.on('close', () => {
+          if (!streamClosed) {
+            streamClosed = true
+          }
+        })
+
+        try {
+          await webSocketManager.requestInference(
+            trimmedModel,
+            {
+              userId: req.user.userId,
+              openai: {
+                ...requestPayload,
+                stream: true,
+              },
+            },
+            60_000,
+            {
+              onChunk: (chunk) => {
+                if (streamClosed || !chunk) {
+                  return
+                }
+                sendChunk(chunk)
+              },
+            },
+          )
+          if (!streamClosed) {
+            sendDone()
+          }
+        } catch (error: any) {
+          if (!streamClosed) {
+            sendError(error?.message || 'Failed to process inference request')
+          }
+        }
+        return
+      }
+
+      const result = await webSocketManager.requestInference(trimmedModel, {
+        userId: req.user.userId,
+        openai: requestPayload,
+      })
 
       res.status(200).json({
         id: completionId,

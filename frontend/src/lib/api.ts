@@ -63,9 +63,22 @@ export interface AvailableModel {
 }
 
 export interface InferenceResult {
-  response: string
-  chunks: string[]
-  giverId?: string
+  id: string
+  object: string
+  created: number
+  model: string
+  choices: {
+    index: number
+    message: {
+      role: string
+      content: string
+    }
+  }[]
+  usage: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,7 +138,6 @@ export const api = {
   async requestInference(
     model: string,
     prompt: string,
-    options?: Record<string, unknown>,
     apiKey?: string,
   ): Promise<InferenceResult> {
     const headers: Record<string, string> = {}
@@ -134,18 +146,23 @@ export const api = {
     }
 
     const response = await axiosInstance.post(
-      '/api/taker/inference',
+      '/api/v1/chat/completions',
       {
         model,
         prompt,
-        options,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
       },
       {
         headers,
       },
     )
 
-    return response.data.data
+    return response.data
   },
 
   async createApiKey(

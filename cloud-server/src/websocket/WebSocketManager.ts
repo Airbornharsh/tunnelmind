@@ -21,6 +21,12 @@ interface PendingRequest {
   }) => void
   reject: (reason?: any) => void
   timeout: NodeJS.Timeout
+  onChunk?: (chunk: string, done?: boolean) => void
+  onComplete?: (value: {
+    response: string
+    chunks: string[]
+    giverId: string
+  }) => void
 }
 
 class WebSocketManager {
@@ -258,6 +264,11 @@ class WebSocketManager {
       case 'inference_chunk': {
         if (typeof message.chunk === 'string') {
           pending.chunks.push(message.chunk)
+          if (pending.onChunk) {
+            try {
+              pending.onChunk(message.chunk, Boolean(message.done))
+            } catch (error) {}
+          }
         }
         break
       }
@@ -268,11 +279,17 @@ class WebSocketManager {
           typeof message.response === 'string'
             ? message.response
             : pending.chunks.join('')
-        pending.resolve({
+        const result = {
           response,
           chunks: pending.chunks,
           giverId: pending.giverId,
-        })
+        }
+        if (pending.onComplete) {
+          try {
+            pending.onComplete(result)
+          } catch (error) {}
+        }
+        pending.resolve(result)
         break
       }
       case 'inference_error': {
@@ -295,12 +312,18 @@ class WebSocketManager {
   async requestInference(
     model: string,
     payload: {
-      prompt: string
-      options?: Record<string, unknown>
       userId?: string
       openai?: Record<string, unknown>
     },
     timeoutMs = 60_000,
+    handlers?: {
+      onChunk?: (chunk: string, done?: boolean) => void
+      onComplete?: (value: {
+        response: string
+        chunks: string[]
+        giverId: string
+      }) => void
+    },
   ): Promise<{ response: string; chunks: string[]; giverId: string }> {
     const trimmedModel = model.trim()
     if (!trimmedModel) {
@@ -327,8 +350,6 @@ class WebSocketManager {
       type: 'inference_request',
       requestId,
       model: trimmedModel,
-      prompt: payload.prompt,
-      options: payload.options,
       userId: payload.userId,
       openai: payload.openai,
     }
@@ -345,6 +366,8 @@ class WebSocketManager {
         resolve,
         reject,
         timeout,
+        onChunk: handlers?.onChunk,
+        onComplete: handlers?.onComplete,
       })
 
       ws.send(JSON.stringify(message), (err) => {
