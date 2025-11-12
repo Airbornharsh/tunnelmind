@@ -4,7 +4,7 @@ import { Giver } from '../types'
 export class GiverService {
   static async upsertGiverFromConnection(
     userId: string,
-    name: string | null,
+    name?: string,
     models?: string[],
   ): Promise<Giver | null> {
     try {
@@ -15,22 +15,27 @@ export class GiverService {
           : undefined
 
       let giver = await db.GiverModel.findOne({ userId })
+      let giverName = name || undefined
 
-      const normalizedName =
-        typeof name === 'string' && name.trim().length > 0
-          ? name.trim()
-          : giver?.name || 'Unnamed Giver'
+      if (!name) {
+        const user = await db.UserModel.findById(userId)
+        if (!user) {
+          throw new Error('User not found')
+        }
+
+        giverName = user.name
+      }
 
       if (!giver) {
         giver = await db.GiverModel.create({
           userId,
-          name: normalizedName,
+          name: giverName,
           models: giverModels || [],
           status: 'online',
           lastSeen: now,
         })
       } else {
-        giver.name = normalizedName
+        giver.name = giverName || ''
         if (giverModels) {
           giver.models = giverModels
         }

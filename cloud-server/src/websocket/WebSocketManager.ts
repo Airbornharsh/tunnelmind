@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 import { Giver, JWTPayload } from '../types'
 import { GiverService } from '../services/giver.service'
 import { AuthService } from '../services/auth.service'
+import { db } from '../db/mongo/init'
 
 interface GiverConnection {
   giverId: string
@@ -86,7 +87,6 @@ class WebSocketManager {
       const url = new URL(req.url || '', `http://${req.headers.host}`)
       const role = url.searchParams.get('role')
       const giverId = url.searchParams.get('giverId')
-      const giverName = url.searchParams.get('giverName')
       const token = url.searchParams.get('token')
       const payload = token ? AuthService.verifyToken(token) : null
       const modelsParam = url.searchParams.get('models')
@@ -96,13 +96,7 @@ class WebSocketManager {
           ws.close(1008, 'Token required')
           return
         }
-        await this.handleGiverConnection(
-          ws,
-          giverId,
-          giverName,
-          payload,
-          modelsParam,
-        )
+        await this.handleGiverConnection(ws, giverId, payload, modelsParam)
       } else {
         ws.close(1008, 'Invalid connection parameters')
       }
@@ -115,7 +109,6 @@ class WebSocketManager {
   private async handleGiverConnection(
     ws: WebSocket,
     providedGiverId: string | null,
-    giverName: string | null,
     payload: JWTPayload | null,
     modelsParam: string | null,
   ): Promise<void> {
@@ -144,7 +137,7 @@ class WebSocketManager {
           }
           giverRecord = await GiverService.upsertGiverFromConnection(
             payload.userId,
-            giverName || existing.name,
+            existing.name,
             initialModels,
           )
         }
@@ -153,7 +146,7 @@ class WebSocketManager {
       if (!giverRecord) {
         giverRecord = await GiverService.upsertGiverFromConnection(
           payload.userId,
-          giverName,
+          undefined,
           initialModels,
         )
       }

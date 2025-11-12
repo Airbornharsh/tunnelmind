@@ -207,7 +207,7 @@ export class ChatController {
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache, no-transform')
       res.setHeader('Connection', 'keep-alive')
-        ; (res as any).flushHeaders?.()
+      ;(res as any).flushHeaders?.()
 
       const writeEvent = (payload: unknown) => {
         res.write(`data: ${JSON.stringify(payload)}\n\n`)

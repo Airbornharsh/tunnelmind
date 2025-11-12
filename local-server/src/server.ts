@@ -1,13 +1,9 @@
 import { OllamaService } from './services/ollama.service'
 import { TunnelClient } from './services/tunnelClient.service'
-import { CLOUD_SERVER_URL, GIVER_NAME, OLLAMA_URL } from './config/config'
+import { CLOUD_SERVER_URL, OLLAMA_URL } from './config/config'
 
 const ollamaService = new OllamaService(OLLAMA_URL)
-const tunnelClient = new TunnelClient(
-  CLOUD_SERVER_URL,
-  GIVER_NAME,
-  ollamaService,
-)
+const tunnelClient = new TunnelClient(CLOUD_SERVER_URL, ollamaService)
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -81,7 +77,6 @@ async function startServer() {
   console.log('🚀 Starting TunnelMind Local Server...')
   console.log(`📡 Cloud Server: ${CLOUD_SERVER_URL}`)
   console.log(`🤖 Ollama URL: ${OLLAMA_URL}`)
-  console.log(`👤 Giver Name: ${GIVER_NAME}`)
   console.log('')
 
   await ensureOllamaReady()

@@ -4,19 +4,13 @@ import Session from '../utils/session'
 
 export class TunnelClient {
   private cloudUrl: string
-  private giverName: string
   private ws?: WebSocket
   private ollamaService: OllamaService
   private reconnectInterval?: NodeJS.Timeout
   private sessionToken?: string
 
-  constructor(
-    cloudUrl: string,
-    giverName: string,
-    ollamaService: OllamaService,
-  ) {
+  constructor(cloudUrl: string, ollamaService: OllamaService) {
     this.cloudUrl = cloudUrl
-    this.giverName = giverName
     this.ollamaService = ollamaService
   }
 
@@ -47,7 +41,6 @@ export class TunnelClient {
     wsUrl.pathname = '/ws'
     wsUrl.searchParams.set('role', 'giver')
     wsUrl.searchParams.set('token', sessionToken)
-    wsUrl.searchParams.set('giverName', this.giverName)
     if (modelNames.length > 0) {
       wsUrl.searchParams.set('models', modelNames.join(','))
     }
@@ -59,7 +52,6 @@ export class TunnelClient {
         console.log('✅ WebSocket connected')
         this.send({
           type: 'giver_ready',
-          giverName: this.giverName,
         })
         this.scheduleHeartbeat()
         resolve()
@@ -98,6 +90,8 @@ export class TunnelClient {
         this.send({ type: 'pong' })
         break
       case 'pong':
+        break
+      case 'giver_ready_ack':
         break
       default:
         console.warn('Unknown message type:', message.type)
