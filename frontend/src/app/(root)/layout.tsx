@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/sidebar'
 import { Header } from '@/components/header'
 import { Loader2 } from 'lucide-react'
 import { getTerminalToken, setTerminalToken } from '@/utils/session'
+import Link from 'next/link'
 
 function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -36,11 +37,6 @@ function RootLayout({ children }: { children: React.ReactNode }) {
 
     if (pathname === '/auth' && isAuthenticated) {
       router.push('/')
-      return
-    }
-
-    if (!isAuthenticated && pathname !== '/auth') {
-      router.push('/auth')
       return
     }
   }, [authLoaded, loading, isAuthenticated, pathname, router])
@@ -74,7 +70,44 @@ function RootLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (pathname === '/auth') {
-    return <>{children}</>
+    return (
+      <div className="relative min-h-screen bg-background">
+        {children}
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-10 w-full max-w-2xl -translate-x-1/2 px-4">
+          <div className="pointer-events-auto flex flex-col items-center gap-3 rounded-2xl border border-border/70 bg-card/95 px-5 py-4 text-sm shadow-2xl backdrop-blur-sm sm:flex-row sm:justify-center">
+            <span className="text-muted-foreground text-xs uppercase tracking-wider">
+              Connect With Harsh
+            </span>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link
+                href="https://harshkeshri.com"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-border/50 px-3 py-1 text-xs text-muted-foreground transition hover:border-primary/60 hover:bg-primary/10 hover:text-foreground"
+              >
+                Portfolio
+              </Link>
+              <Link
+                href="https://github.com/airbornharsh"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-border/50 px-3 py-1 text-xs text-muted-foreground transition hover:border-primary/60 hover:bg-primary/10 hover:text-foreground"
+              >
+                GitHub
+              </Link>
+              <Link
+                href="https://github.com/airbornharsh/tunnelmind"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-border/50 px-3 py-1 text-xs text-muted-foreground transition hover:border-primary/60 hover:bg-primary/10 hover:text-foreground"
+              >
+                Project Repo
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

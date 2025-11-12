@@ -46,7 +46,7 @@ export function ApiKeysView() {
     if (isAuthenticated) {
       fetchApiKeys()
     } else {
-      router.push('/auth')
+      // router.push('/auth')
     }
   }, [fetchApiKeys, isAuthenticated, router])
 

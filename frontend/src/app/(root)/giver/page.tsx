@@ -41,7 +41,7 @@ export default function GiverPage() {
           ) : error ? (
             <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md flex items-center gap-2 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
-              <span>{error}</span>
+              <span>{error.includes('401') ? 'Login to continue' : error}</span>
             </div>
           ) : availableModels.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">

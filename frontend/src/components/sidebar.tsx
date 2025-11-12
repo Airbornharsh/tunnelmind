@@ -188,7 +188,7 @@ export function Sidebar() {
                   Loading chats…
                 </p>
               )}
-              {error && (
+              {error && !error.includes('401') && (
                 <p className="px-3 text-xs text-destructive">{error}</p>
               )}
               <div
