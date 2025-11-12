@@ -8,6 +8,12 @@ import ApiKeySchema, { IApiKey } from './models/ApiKey.schema'
 import TerminalSessionSchema, {
   ITerminalSession,
 } from './models/TerminalSession.schema'
+import {
+  ChatSchema,
+  ChatMessageSchema,
+  IChat,
+  IChatMessage,
+} from './models/Chat.schema'
 
 mongoose.set('strictQuery', false)
 
@@ -21,6 +27,8 @@ interface Db {
   GiverModel: Model<IGiver>
   ApiKeyModel: Model<IApiKey>
   TerminalSessionModel: Model<ITerminalSession>
+  ChatModel: Model<IChat>
+  ChatMessageModel: Model<IChatMessage>
 }
 
 const connectDB = async () => {
@@ -34,12 +42,19 @@ const connectDB = async () => {
       'TerminalSession',
       TerminalSessionSchema,
     )
+    const ChatModel = connection.model<IChat>('Chat', ChatSchema)
+    const ChatMessageModel = connection.model<IChatMessage>(
+      'ChatMessage',
+      ChatMessageSchema,
+    )
 
     db = {
       UserModel,
       GiverModel,
       ApiKeyModel,
       TerminalSessionModel,
+      ChatModel,
+      ChatMessageModel,
     }
   } catch (error: any) {
     console.error('❌ MongoDB connection error:', error)

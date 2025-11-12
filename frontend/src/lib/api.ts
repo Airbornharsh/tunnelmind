@@ -3,6 +3,22 @@ import axios from 'axios'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:6701'
 
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  const storage = localStorage.getItem('tunnelmind-auth-storage')
+  if (!storage) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(storage)
+    return parsed?.state?.token || null
+  } catch {
+    return null
+  }
+}
+
 const axiosInstance = axios.create({
   baseURL: API_URL,
 })
@@ -60,6 +76,33 @@ export interface AvailableModel {
     name: string
     status: 'online' | 'offline'
   }[]
+}
+
+export interface Chat {
+  id: string
+  userId: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ChatMessage {
+  id: string
+  chatId: string
+  userId: string
+  role: 'user' | 'assistant'
+  content: string
+  metadata?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PaginationMeta {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  hasMore: boolean
 }
 
 export interface InferenceResult {
@@ -191,6 +234,185 @@ export const api = {
 
   async completeTerminalSession(): Promise<void> {
     await axiosInstance.post(`/api/auth/session/${getTerminalToken()}`)
+  },
+
+  async getChats(
+    page = 1,
+    limit = 20,
+  ): Promise<{ chats: Chat[]; pagination: PaginationMeta | null }> {
+    const response = await axiosInstance.get('/api/chats', {
+      params: {
+        page,
+        limit,
+      },
+    })
+    const data = response.data?.data || {}
+    return {
+      chats: data.chats || [],
+      pagination: data.pagination || null,
+    }
+  },
+
+  async createChat(title?: string): Promise<Chat> {
+    const response = await axiosInstance.post('/api/chats', { title })
+    return response.data?.data?.chat
+  },
+
+  async updateChatTitle(id: string, title: string): Promise<Chat> {
+    const response = await axiosInstance.patch(`/api/chats/${id}`, { title })
+    return response.data?.data?.chat
+  },
+
+  async getChat(
+    id: string,
+    page = 1,
+    limit = 50,
+  ): Promise<{
+    chat: Chat
+    messages: ChatMessage[]
+    pagination: PaginationMeta | null
+  } | null> {
+    const response = await axiosInstance.get(`/api/chats/${id}`, {
+      params: {
+        page,
+        limit,
+      },
+    })
+    const data = response.data?.data
+    if (!data) {
+      return null
+    }
+    return {
+      chat: data.chat,
+      messages: data.messages || [],
+      pagination: data.pagination || null,
+    }
+  },
+
+  async sendChatMessage(
+    id: string,
+    content: string,
+    model: string,
+  ): Promise<{
+    chat: Chat
+    userMessage: ChatMessage
+    assistantMessage: ChatMessage | null
+  }> {
+    const response = await axiosInstance.post(`/api/chats/${id}/messages`, {
+      content,
+      model,
+    })
+    return response.data?.data
+  },
+
+  async streamChatMessage(
+    id: string,
+    content: string,
+    model: string,
+    handlers: {
+      onUser?: (payload: { chat: Chat; userMessage: ChatMessage }) => void
+      onChunk?: (payload: { chatId: string; chunk: string }) => void
+      onAssistant?: (payload: {
+        chat: Chat
+        assistantMessage: ChatMessage
+      }) => void
+      onError?: (message: string) => void
+      onDone?: () => void
+    },
+  ): Promise<void> {
+    const token = getAuthToken()
+    const controller = new AbortController()
+    try {
+      const response = await fetch(
+        `${API_URL}/api/chats/${id}/messages?stream=true`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ content, model, stream: true }),
+          signal: controller.signal,
+        },
+      )
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || 'Failed to send chat message')
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('Streaming not supported by the server')
+      }
+
+      const decoder = new TextDecoder('utf-8')
+      let buffer = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) {
+          break
+        }
+        buffer += decoder.decode(value, { stream: true })
+        let separatorIndex: number
+        while ((separatorIndex = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, separatorIndex).trim()
+          buffer = buffer.slice(separatorIndex + 2)
+          if (!rawEvent.startsWith('data:')) {
+            continue
+          }
+          const payload = rawEvent.replace(/^data:\s*/, '')
+          if (payload === '[DONE]') {
+            handlers.onDone?.()
+            return
+          }
+          try {
+            const eventData = JSON.parse(payload) as Record<string, unknown>
+            switch (eventData?.type) {
+              case 'user':
+                handlers.onUser?.({
+                  chat: eventData.chat as Chat,
+                  userMessage: eventData.userMessage as ChatMessage,
+                })
+                break
+              case 'chunk':
+                handlers.onChunk?.({
+                  chatId: String(eventData.chatId ?? ''),
+                  chunk: String(eventData.chunk ?? ''),
+                })
+                break
+              case 'assistant':
+                handlers.onAssistant?.({
+                  chat: eventData.chat as Chat,
+                  assistantMessage: eventData.assistantMessage as ChatMessage,
+                })
+                break
+              case 'error':
+                handlers.onError?.(
+                  typeof eventData.error === 'string'
+                    ? eventData.error
+                    : 'Failed to generate response',
+                )
+                break
+              default:
+                break
+            }
+          } catch (streamError) {
+            console.warn('Failed to parse streaming event', streamError)
+          }
+        }
+      }
+
+      handlers.onDone?.()
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to stream message'
+      handlers.onError?.(message)
+      throw error
+    } finally {
+      controller.abort()
+    }
   },
 }
 

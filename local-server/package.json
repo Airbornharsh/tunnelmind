@@ -1,11 +1,12 @@
 {
   "name": "tunnelmind",
-  "version": "0.0.2",
-  "description": "Local server for TunnelMind givers",
+  "version": "0.0.3",
+  "description": "Local server for LLM givers",
   "license": "ISC",
   "author": "Harsh Keshri",
   "type": "commonjs",
   "keywords": [
+    "llm",
     "tunnelmind",
     "ollama",
     "cli",
@@ -14,7 +15,8 @@
     "ai-tunneling",
     "model-sharing",
     "llm",
-    "openai-compatible"
+    "openai-compatible",
+    "airbornharsh"
   ],
   "main": "dist/index.js",
   "bin": {

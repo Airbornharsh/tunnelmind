@@ -88,7 +88,7 @@ function RootLayout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto bg-background">
-          <div className="container mx-auto px-4 py-6">{children}</div>
+          <div className="container mx-auto">{children}</div>
         </main>
       </div>
     </div>

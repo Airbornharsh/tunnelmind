@@ -65,6 +65,25 @@ export interface ApiKeyInfo {
   createdAt: Date
 }
 
+export interface Chat {
+  id: string
+  userId: string
+  title: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface ChatMessage {
+  id: string
+  chatId: string
+  userId: string
+  role: 'user' | 'assistant'
+  content: string
+  metadata?: Record<string, unknown>
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface AvailableModel {
   model: string
   givers: {
